@@ -1,0 +1,10 @@
+# Local test secrets (never commit real credentials)
+tests/credentials.ts
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
