@@ -73,14 +73,33 @@ export async function setAuthCookie(context: BrowserContext, cookieFilePath?: st
 }
 
 export async function startGameIfNeeded(page: Page) {
-  const startSelectors = ['button:has-text("Start" )', 'text=Start Game', 'button.start', 'a:has-text("Play")', 'button:has-text("Enter the Number Wilds")'];
-  for (const sel of startSelectors) {
+  // Common start/play buttons across builds (be permissive).
+  const startLocators = [
+    'button:has-text("Start")',
+    'button:has-text("Start Game")',
+    'text=Start Game',
+    'button.start',
+    'a:has-text("Play")',
+    'button:has-text("Play")',
+    'button:has-text("Enter the Number Wilds")',
+    'text=Enter the Number Wilds',
+  ];
+
+  for (const sel of startLocators) {
     const loc = page.locator(sel).first();
-    if (await loc.count()) {
-      await loc.click().catch(() => null);
-      return true;
-    }
+    if (!(await loc.count())) continue;
+    if (!(await loc.isVisible().catch(() => false))) continue;
+    await loc.click({ timeout: 3000 }).catch(() => null);
+    return true;
   }
+
+  // Some builds only start the game when clicking the canvas.
+  const canv = page.locator('canvas, .game-canvas').first();
+  if (await canv.count()) {
+    await canv.click({ timeout: 3000 }).catch(() => null);
+    return true;
+  }
+
   return false;
 }
 
@@ -149,14 +168,26 @@ export async function startAndNavigateToProblem(page: Page, maxAttempts = 24): P
     await page.focus('body').catch(() => null);
   }
 
-  // Simulate movement: alternate ArrowRight and ArrowLeft with small pauses
-  const moves = ['ArrowRight', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'ArrowDown'];
+  // Simulate movement to trigger collision-based problem prompt.
+  // Use longer holds; many canvas games only move on sustained keydown.
+  const moveSequences: string[][] = [
+    // walk right/up in a rough “search” pattern
+    ['ArrowRight', 'ArrowRight', 'ArrowRight', 'ArrowUp', 'ArrowUp'],
+    // then left/down to cover a different area
+    ['ArrowLeft', 'ArrowLeft', 'ArrowDown', 'ArrowDown'],
+    // small zig-zag
+    ['ArrowRight', 'ArrowUp', 'ArrowRight', 'ArrowDown'],
+  ];
+
+  const holdMs = 850;
+  const betweenMovesMs = 150;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    for (const m of moves) {
+    const seq = moveSequences[attempt % moveSequences.length];
+    for (const m of seq) {
       if (page.isClosed && page.isClosed()) break;
-      // Hold keys longer to ensure movement registers
+      // Hold keys to ensure movement registers
       await page.keyboard.down(m).catch(() => null);
-      await page.waitForTimeout(400).catch(() => null);
+      await page.waitForTimeout(holdMs).catch(() => null);
       await page.keyboard.up(m).catch(() => null);
       // After each move, check for problem card
       for (const sel of problemSelectors) {
@@ -176,7 +207,7 @@ export async function startAndNavigateToProblem(page: Page, maxAttempts = 24): P
         return true;
       }
       // short wait
-      await page.waitForTimeout(200).catch(() => null);
+      await page.waitForTimeout(betweenMovesMs).catch(() => null);
     }
     // If canvas present, also try clicking around center to nudge collisions
     try {
